@@ -2,7 +2,6 @@ apiVersion: kyverno.io/v2alpha1
 kind: PolicyException
 metadata:
   name: mynewpolex
-  namespace: kyverno
 spec:
   exceptions:
     - policyName: require-labels

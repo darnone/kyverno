@@ -7,7 +7,7 @@ metadata:
 spec:
   containers:
   - name: check-readiness
-    image: registry.k8s.io/busybox
+    image: k8s.gcr.io/busybox
     args:
     - /bin/sh
     - -c
@@ -19,7 +19,7 @@ spec:
         - cat
         - /tmp/healthy
   - name: check-liveness
-    image: registry.k8s.io/liveness
+    image: k8s.gcr.io/liveness
     args:
     - /server
     livenessProbe:

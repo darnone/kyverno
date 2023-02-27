@@ -40,8 +40,8 @@ func NewGenerator(client versioned.Interface, urInformer kyvernov1beta1informers
 
 // Apply creates update request resource
 func (g *generator) Apply(ctx context.Context, ur kyvernov1beta1.UpdateRequestSpec, action admissionv1.Operation) error {
-	logger.V(4).Info("apply Update Request", "request", ur)
-	if action == admissionv1.Delete && ur.GetRequestType() == kyvernov1beta1.Generate {
+	logger.V(4).Info("reconcile Update Request", "request", ur)
+	if action == admissionv1.Delete && ur.Type == kyvernov1beta1.Generate {
 		return nil
 	}
 	go g.applyResource(context.TODO(), ur)
@@ -64,18 +64,17 @@ func (g *generator) applyResource(ctx context.Context, urSpec kyvernov1beta1.Upd
 }
 
 func (g *generator) tryApplyResource(ctx context.Context, urSpec kyvernov1beta1.UpdateRequestSpec) error {
-	l := logger.WithValues("ruleType", urSpec.GetRequestType(), "resource", urSpec.GetResource().String())
+	l := logger.WithValues("ruleType", urSpec.Type, "kind", urSpec.Resource.Kind, "name", urSpec.Resource.Name, "namespace", urSpec.Resource.Namespace)
 	var queryLabels labels.Set
 
-	if urSpec.GetRequestType() == kyvernov1beta1.Mutate {
-		queryLabels = common.MutateLabelsSet(urSpec.Policy, urSpec.GetResource())
-	} else if urSpec.GetRequestType() == kyvernov1beta1.Generate {
-		queryLabels = common.GenerateLabelsSet(urSpec.Policy, urSpec.GetResource())
+	if urSpec.Type == kyvernov1beta1.Mutate {
+		queryLabels = common.MutateLabelsSet(urSpec.Policy, urSpec.Resource)
+	} else if urSpec.Type == kyvernov1beta1.Generate {
+		queryLabels = common.GenerateLabelsSet(urSpec.Policy, urSpec.Resource)
 	}
-
 	urList, err := g.urLister.List(labels.SelectorFromSet(queryLabels))
 	if err != nil {
-		l.Error(err, "failed to get update request for the resource", "resource", urSpec.GetResource().String())
+		l.Error(err, "failed to get update request for the resource", "kind", urSpec.Resource.Kind, "name", urSpec.Resource.Name, "namespace", urSpec.Resource.Namespace)
 		return err
 	}
 	for _, v := range urList {
@@ -94,8 +93,7 @@ func (g *generator) tryApplyResource(ctx context.Context, urSpec kyvernov1beta1.
 			return err
 		}
 	}
-
-	if len(urList) == 0 || urSpec.DeleteDownstream {
+	if len(urList) == 0 {
 		l.V(4).Info("creating new UpdateRequest")
 		ur := kyvernov1beta1.UpdateRequest{
 			ObjectMeta: metav1.ObjectMeta{

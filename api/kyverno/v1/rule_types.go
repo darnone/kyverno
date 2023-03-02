@@ -32,12 +32,6 @@ type ImageExtractorConfig struct {
 	// Note - this field MUST be unique.
 	// +optional
 	Key string `json:"key,omitempty" yaml:"key,omitempty"`
-	// JMESPath is an optional JMESPath expression to apply to the image value.
-	// This is useful when the extracted image begins with a prefix like 'docker://'.
-	// The 'trim_prefix' function may be used to trim the prefix: trim_prefix(@, 'docker://').
-	// Note - Image digest mutation may not be used when applying a JMESPAth to an image.
-	// +optional
-	JMESPath string `json:"jmesPath,omitempty" yaml:"jmesPath,omitempty"`
 }
 
 // Rule defines a validation, mutation, or generation control for matching resources.
@@ -150,11 +144,18 @@ func (r *Rule) IsPodSecurity() bool {
 	return r.Validation.PodSecurity != nil
 }
 
-func (r *Rule) GetGenerateTypeAndSync() (_ GenerateType, sync bool) {
+// IsCloneSyncGenerate checks if the generate rule has the clone block with sync=true
+func (r *Rule) GetCloneSyncForGenerate() (clone bool, sync bool) {
 	if !r.HasGenerate() {
 		return
 	}
-	return r.Generation.GetTypeAndSync()
+
+	if r.Generation.Clone.Name != "" {
+		clone = true
+	}
+
+	sync = r.Generation.Synchronize
+	return
 }
 
 func (r *Rule) GetAnyAllConditions() apiextensions.JSON {

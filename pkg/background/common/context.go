@@ -11,7 +11,9 @@ import (
 	"github.com/kyverno/kyverno/pkg/config"
 	"github.com/kyverno/kyverno/pkg/engine"
 	"github.com/kyverno/kyverno/pkg/engine/context"
+	"github.com/kyverno/kyverno/pkg/engine/context/resolvers"
 	admissionutils "github.com/kyverno/kyverno/pkg/utils/admission"
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -19,27 +21,28 @@ func NewBackgroundContext(dclient dclient.Interface, ur *kyvernov1beta1.UpdateRe
 	policy kyvernov1.PolicyInterface,
 	trigger *unstructured.Unstructured,
 	cfg config.Configuration,
+	informerCacheResolvers resolvers.ConfigmapResolver,
 	namespaceLabels map[string]string,
 	logger logr.Logger,
-) (*engine.PolicyContext, error) {
+) (*engine.PolicyContext, bool, error) {
 	ctx := context.NewContext()
 	var new, old unstructured.Unstructured
 	var err error
 
 	if ur.Spec.Context.AdmissionRequestInfo.AdmissionRequest != nil {
 		if err := ctx.AddRequest(ur.Spec.Context.AdmissionRequestInfo.AdmissionRequest); err != nil {
-			return nil, fmt.Errorf("failed to load request in context: %w", err)
+			return nil, false, errors.Wrap(err, "failed to load request in context")
 		}
 
 		new, old, err = admissionutils.ExtractResources(nil, ur.Spec.Context.AdmissionRequestInfo.AdmissionRequest)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load request in context: %w", err)
+			return nil, false, errors.Wrap(err, "failed to load request in context")
 		}
 
 		if !reflect.DeepEqual(new, unstructured.Unstructured{}) {
 			if !check(&new, trigger) {
 				err := fmt.Errorf("resources don't match")
-				return nil, fmt.Errorf("resource %v: %w", ur.Spec.GetResource().String(), err)
+				return nil, false, errors.Wrapf(err, "resource %v", ur.Spec.Resource)
 			}
 		}
 	}
@@ -49,30 +52,30 @@ func NewBackgroundContext(dclient dclient.Interface, ur *kyvernov1beta1.UpdateRe
 	}
 
 	if trigger == nil {
-		return nil, fmt.Errorf("trigger resource does not exist")
+		return nil, false, errors.New("trigger resource does not exist")
 	}
 
 	err = ctx.AddResource(trigger.Object)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load resource in context: %w", err)
+		return nil, false, errors.Wrap(err, "failed to load resource in context")
 	}
 
 	err = ctx.AddOldResource(old.Object)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load resource in context: %w", err)
+		return nil, false, errors.Wrap(err, "failed to load resource in context")
 	}
 
 	err = ctx.AddUserInfo(ur.Spec.Context.UserRequestInfo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load SA in context: %w", err)
+		return nil, false, errors.Wrapf(err, "failed to load SA in context")
 	}
 
 	err = ctx.AddServiceAccount(ur.Spec.Context.UserRequestInfo.AdmissionUserInfo.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load UserInfo in context: %w", err)
+		return nil, false, errors.Wrapf(err, "failed to load UserInfo in context")
 	}
 
-	if err := ctx.AddImageInfos(trigger, cfg); err != nil {
+	if err := ctx.AddImageInfos(trigger); err != nil {
 		logger.Error(err, "unable to add image info to variables context")
 	}
 
@@ -81,9 +84,12 @@ func NewBackgroundContext(dclient dclient.Interface, ur *kyvernov1beta1.UpdateRe
 		WithNewResource(*trigger).
 		WithOldResource(old).
 		WithAdmissionInfo(ur.Spec.Context.UserRequestInfo).
-		WithNamespaceLabels(namespaceLabels)
+		WithConfiguration(cfg).
+		WithNamespaceLabels(namespaceLabels).
+		WithClient(dclient).
+		WithInformerCacheResolver(informerCacheResolvers)
 
-	return policyContext, nil
+	return policyContext, false, nil
 }
 
 func check(admissionRsc, existingRsc *unstructured.Unstructured) bool {

@@ -3,4 +3,4 @@ kind: TestStep
 delete:
 - apiVersion: kyverno.io/v1
   kind: ClusterPolicy
-  name: cpol-data-sync-delete-policy
+  name: zk-kafka-address

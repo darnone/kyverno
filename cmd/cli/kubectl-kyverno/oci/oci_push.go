@@ -17,7 +17,6 @@ import (
 	policyutils "github.com/kyverno/kyverno/pkg/utils/policy"
 	"github.com/spf13/cobra"
 	"go.uber.org/multierr"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var policyRef string
@@ -42,12 +41,12 @@ kyverno oci push -p policies. -i <imgref>`,
 				return fmt.Errorf("unable to read policy file or directory %s: %w", policyRef, multierr.Combine(errs...))
 			}
 
-			openApiManager, err := openapi.NewManager(log.Log)
+			openApiManager, err := openapi.NewManager()
 			if err != nil {
 				return fmt.Errorf("creating openapi manager: %v", err)
 			}
 			for _, policy := range policies {
-				if _, err := policyvalidation.Validate(policy, nil, nil, true, openApiManager); err != nil {
+				if _, err := policyvalidation.Validate(policy, nil, true, openApiManager); err != nil {
 					return fmt.Errorf("validating policy %s: %v", policy.GetName(), err)
 				}
 			}

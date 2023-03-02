@@ -3,7 +3,6 @@ kind: PolicyException
 metadata:
   name: mynewpolex
 spec:
-  background: false
   exceptions:
     - policyName: require-labels
       ruleNames:

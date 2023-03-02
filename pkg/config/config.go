@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"sync"
 
-	valid "github.com/asaskevich/govalidator"
 	osutils "github.com/kyverno/kyverno/pkg/utils/os"
 	wildcard "github.com/kyverno/kyverno/pkg/utils/wildcard"
 	corev1 "k8s.io/api/core/v1"
@@ -95,10 +94,8 @@ var (
 	kyvernoPodName = osutils.GetEnvWithFallback("KYVERNO_POD_NAME", "kyverno")
 	// kyvernoConfigMapName is the Kyverno configmap name
 	kyvernoConfigMapName = osutils.GetEnvWithFallback("INIT_CONFIG", "kyverno")
-	// defaultExcludedUsernames are the usernames excluded by default when matching an incoming admission request
-	defaultExcludedUsernames []string = []string{"system:kube-scheduler"}
-	// defaultExcludedGroups are the groups excluded by default when matching an incoming admission request
-	defaultExcludedGroups []string = []string{"system:serviceaccounts:kube-system", "system:nodes"}
+	// defaultExcludeGroupRole ...
+	defaultExcludeGroupRole []string = []string{"system:serviceaccounts:kube-system", "system:nodes", "system:kube-scheduler"}
 	// kyvernoDryRunNamespace is the namespace for DryRun option of YAML verification
 	kyvernoDryrunNamespace = osutils.GetEnvWithFallback("KYVERNO_DRYRUN_NAMESPACE", "kyverno-dryrun")
 )
@@ -133,18 +130,16 @@ func KyvernoConfigMapName() string {
 
 // Configuration to be used by consumer to check filters
 type Configuration interface {
-	// GetDefaultRegistry return default image registry
-	GetDefaultRegistry() string
-	// GetEnableDefaultRegistryMutation return if should mutate image registry
-	GetEnableDefaultRegistryMutation() bool
 	// ToFilter checks if the given resource is set to be filtered in the configuration
 	ToFilter(kind, namespace, name string) bool
-	// GetExcludedGroups return exclude groups
-	GetExcludedGroups() []string
-	// GetExcludedUsernames return exclude usernames
-	GetExcludedUsernames() []string
+	// GetExcludeGroupRole return exclude roles
+	GetExcludeGroupRole() []string
+	// GetExcludeUsername return exclude username
+	GetExcludeUsername() []string
 	// GetGenerateSuccessEvents return if should generate success events
 	GetGenerateSuccessEvents() bool
+	// FilterNamespaces filters exclude namespace
+	FilterNamespaces(namespaces []string) []string
 	// GetWebhooks returns the webhook configs
 	GetWebhooks() []WebhookConfig
 	// Load loads configuration from a configmap
@@ -153,23 +148,18 @@ type Configuration interface {
 
 // configuration stores the configuration
 type configuration struct {
-	defaultRegistry               string
-	enableDefaultRegistryMutation bool
-	excludedGroups                []string
-	excludedUsernames             []string
-	filters                       []filter
-	generateSuccessEvents         bool
-	mux                           sync.RWMutex
-	webhooks                      []WebhookConfig
+	mux                   sync.RWMutex
+	filters               []filter
+	excludeGroupRole      []string
+	excludeUsername       []string
+	webhooks              []WebhookConfig
+	generateSuccessEvents bool
 }
 
 // NewDefaultConfiguration ...
 func NewDefaultConfiguration() *configuration {
 	return &configuration{
-		defaultRegistry:               "docker.io",
-		enableDefaultRegistryMutation: true,
-		excludedGroups:                defaultExcludedGroups,
-		excludedUsernames:             defaultExcludedUsernames,
+		excludeGroupRole: defaultExcludeGroupRole,
 	}
 }
 
@@ -203,34 +193,32 @@ func (cd *configuration) ToFilter(kind, namespace, name string) bool {
 	return false
 }
 
-func (cd *configuration) GetDefaultRegistry() string {
+func (cd *configuration) GetExcludeGroupRole() []string {
 	cd.mux.RLock()
 	defer cd.mux.RUnlock()
-	return cd.defaultRegistry
+	return cd.excludeGroupRole
 }
 
-func (cd *configuration) GetEnableDefaultRegistryMutation() bool {
+func (cd *configuration) GetExcludeUsername() []string {
 	cd.mux.RLock()
 	defer cd.mux.RUnlock()
-	return cd.enableDefaultRegistryMutation
-}
-
-func (cd *configuration) GetExcludedUsernames() []string {
-	cd.mux.RLock()
-	defer cd.mux.RUnlock()
-	return cd.excludedUsernames
-}
-
-func (cd *configuration) GetExcludedGroups() []string {
-	cd.mux.RLock()
-	defer cd.mux.RUnlock()
-	return cd.excludedGroups
+	return cd.excludeUsername
 }
 
 func (cd *configuration) GetGenerateSuccessEvents() bool {
 	cd.mux.RLock()
 	defer cd.mux.RUnlock()
 	return cd.generateSuccessEvents
+}
+
+func (cd *configuration) FilterNamespaces(namespaces []string) []string {
+	var results []string
+	for _, ns := range namespaces {
+		if !cd.ToFilter("", ns, "") {
+			results = append(results, ns)
+		}
+	}
+	return results
 }
 
 func (cd *configuration) GetWebhooks() []WebhookConfig {
@@ -256,50 +244,17 @@ func (cd *configuration) load(cm *corev1.ConfigMap) {
 	defer cd.mux.Unlock()
 	// reset
 	cd.filters = []filter{}
-	cd.excludedUsernames = []string{}
-	cd.excludedGroups = []string{}
+	cd.excludeGroupRole = []string{}
+	cd.excludeUsername = []string{}
 	cd.generateSuccessEvents = false
 	cd.webhooks = nil
-	cd.excludedGroups = append(cd.excludedGroups, defaultExcludedGroups...)
-	cd.excludedUsernames = append(cd.excludedUsernames, defaultExcludedUsernames...)
 	// load filters
 	cd.filters = parseKinds(cm.Data["resourceFilters"])
-	newDefaultRegistry, ok := cm.Data["defaultRegistry"]
-	if !ok {
-		logger.V(6).Info("configuration: No defaultRegistry defined in ConfigMap")
-	} else {
-		if valid.IsDNSName(newDefaultRegistry) {
-			logger.V(4).Info("Updated defaultRegistry config parameter.", "oldDefaultRegistry", cd.defaultRegistry, "newDefaultRegistry", newDefaultRegistry)
-			cd.defaultRegistry = newDefaultRegistry
-		} else {
-			logger.V(4).Info("defaultRegistry didn't change because the provided config value isn't a valid DNS hostname")
-		}
-	}
-	enableDefaultRegistryMutation, ok := cm.Data["enableDefaultRegistryMutation"]
-	if !ok {
-		logger.V(6).Info("configuration: No enableDefaultRegistryMutation defined in ConfigMap")
-	} else {
-		newEnableDefaultRegistryMutation, err := strconv.ParseBool(enableDefaultRegistryMutation)
-		if err != nil {
-			logger.V(4).Info("configuration: Invalid value for enableDefaultRegistryMutation defined in ConfigMap. enableDefaultRegistryMutation didn't change")
-		}
-		logger.V(4).Info("Updated enableDefaultRegistryMutation config parameter", "oldEnableDefaultRegistryMutation", cd.enableDefaultRegistryMutation, "newEnableDefaultRegistryMutation", newEnableDefaultRegistryMutation)
-		cd.enableDefaultRegistryMutation = newEnableDefaultRegistryMutation
-	}
 	// load excludeGroupRole
-	excludedGroups, ok := cm.Data["excludeGroupRole"]
-	if !ok {
-		logger.V(6).Info("configuration: No excludeGroupRole defined in ConfigMap")
-	} else {
-		cd.excludedGroups = parseRbac(excludedGroups)
-	}
+	cd.excludeGroupRole = append(cd.excludeGroupRole, parseRbac(cm.Data["excludeGroupRole"])...)
+	cd.excludeGroupRole = append(cd.excludeGroupRole, defaultExcludeGroupRole...)
 	// load excludeUsername
-	excludedUsernames, ok := cm.Data["excludeUsername"]
-	if !ok {
-		logger.V(6).Info("configuration: No excludeUsername defined in ConfigMap")
-	} else {
-		cd.excludedUsernames = parseRbac(excludedUsernames)
-	}
+	cd.excludeUsername = append(cd.excludeUsername, parseRbac(cm.Data["excludeUsername"])...)
 	// load generateSuccessEvents
 	generateSuccessEvents, ok := cm.Data["generateSuccessEvents"]
 	if ok {
@@ -326,12 +281,9 @@ func (cd *configuration) unload() {
 	cd.mux.Lock()
 	defer cd.mux.Unlock()
 	cd.filters = []filter{}
-	cd.defaultRegistry = "docker.io"
-	cd.enableDefaultRegistryMutation = true
-	cd.excludedUsernames = []string{}
-	cd.excludedGroups = []string{}
+	cd.excludeGroupRole = []string{}
+	cd.excludeUsername = []string{}
 	cd.generateSuccessEvents = false
 	cd.webhooks = nil
-	cd.excludedGroups = append(cd.excludedGroups, defaultExcludedGroups...)
-	cd.excludedUsernames = append(cd.excludedUsernames, defaultExcludedUsernames...)
+	cd.excludeGroupRole = append(cd.excludeGroupRole, defaultExcludeGroupRole...)
 }

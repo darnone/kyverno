@@ -60,7 +60,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: ResourceSpec is the information to identify the trigger resource.
+            description: Spec is the information to identify the update request.
             properties:
               context:
                 description: Context ...
@@ -315,10 +315,6 @@ spec:
                         type: object
                     type: object
                 type: object
-              deleteDownstream:
-                description: DeleteDownstream represents whether the downstream needs
-                  to be deleted.
-                type: boolean
               policy:
                 description: Specifies the name of the policy.
                 type: string
@@ -329,8 +325,8 @@ spec:
                 - generate
                 type: string
               resource:
-                description: ResourceSpec is the information to identify the trigger
-                  resource.
+                description: ResourceSpec is the information to identify the update
+                  request.
                 properties:
                   apiVersion:
                     description: APIVersion specifies resource apiVersion.
@@ -345,19 +341,10 @@ spec:
                     description: Namespace specifies resource namespace.
                     type: string
                 type: object
-              rule:
-                description: Rule is the associate rule name of the current UR.
-                type: string
-              synchronize:
-                description: Synchronize represents the sync behavior of the corresponding
-                  rule Optional. Defaults to "false" if not specified.
-                type: boolean
             required:
             - context
-            - deleteDownstream
             - policy
             - resource
-            - rule
             type: object
           status:
             description: Status contains statistics related to update request.

@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	kyvernov1 "github.com/kyverno/kyverno/api/kyverno/v1"
-	"github.com/kyverno/kyverno/pkg/config"
-	"github.com/kyverno/kyverno/pkg/engine/jmespath"
 	imageutils "github.com/kyverno/kyverno/pkg/utils/image"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -35,22 +33,21 @@ var (
 )
 
 type imageExtractor struct {
-	Fields   []string
-	Key      string
-	Value    string
-	Name     string
-	JMESPath string
+	Fields []string
+	Key    string
+	Value  string
+	Name   string
 }
 
-func (i *imageExtractor) ExtractFromResource(resource interface{}, cfg config.Configuration) (map[string]ImageInfo, error) {
+func (i *imageExtractor) ExtractFromResource(resource interface{}) (map[string]ImageInfo, error) {
 	imageInfo := map[string]ImageInfo{}
-	if err := extract(resource, []string{}, i.Key, i.Value, i.Fields, i.JMESPath, &imageInfo, cfg); err != nil {
+	if err := extract(resource, []string{}, i.Key, i.Value, i.Fields, &imageInfo); err != nil {
 		return nil, err
 	}
 	return imageInfo, nil
 }
 
-func extract(obj interface{}, path []string, keyPath, valuePath string, fields []string, jmesPath string, imageInfos *map[string]ImageInfo, cfg config.Configuration) error {
+func extract(obj interface{}, path []string, keyPath, valuePath string, fields []string, imageInfos *map[string]ImageInfo) error {
 	if obj == nil {
 		return nil
 	}
@@ -58,13 +55,13 @@ func extract(obj interface{}, path []string, keyPath, valuePath string, fields [
 		switch typedObj := obj.(type) {
 		case []interface{}:
 			for i, v := range typedObj {
-				if err := extract(v, append(path, strconv.Itoa(i)), keyPath, valuePath, fields[1:], jmesPath, imageInfos, cfg); err != nil {
+				if err := extract(v, append(path, strconv.Itoa(i)), keyPath, valuePath, fields[1:], imageInfos); err != nil {
 					return err
 				}
 			}
 		case map[string]interface{}:
 			for i, v := range typedObj {
-				if err := extract(v, append(path, i), keyPath, valuePath, fields[1:], jmesPath, imageInfos, cfg); err != nil {
+				if err := extract(v, append(path, i), keyPath, valuePath, fields[1:], imageInfos); err != nil {
 					return err
 				}
 			}
@@ -92,27 +89,7 @@ func extract(obj interface{}, path []string, keyPath, valuePath string, fields [
 		if !ok {
 			return fmt.Errorf("invalid value")
 		}
-
-		if jmesPath != "" {
-			jp, err := jmespath.New(jmesPath)
-			if err != nil {
-				return fmt.Errorf("invalid jmespath %s: %v", jmesPath, err)
-			}
-
-			result, err := jp.Search(value)
-			if err != nil {
-				return fmt.Errorf("failed to apply jmespath %s: %v", jmesPath, err)
-			}
-
-			resultStr, ok := result.(string)
-			if !ok {
-				return fmt.Errorf("jmespath %s must produce a string, but produced %v", jmesPath, result)
-			}
-
-			value = resultStr
-		}
-
-		if imageInfo, err := imageutils.GetImageInfo(value, cfg); err != nil {
+		if imageInfo, err := imageutils.GetImageInfo(value); err != nil {
 			return fmt.Errorf("invalid image %s", value)
 		} else {
 			(*imageInfos)[key] = ImageInfo{*imageInfo, pointer}
@@ -121,7 +98,7 @@ func extract(obj interface{}, path []string, keyPath, valuePath string, fields [
 	}
 
 	currentPath := fields[0]
-	return extract(output[currentPath], append(path, currentPath), keyPath, valuePath, fields[1:], jmesPath, imageInfos, cfg)
+	return extract(output[currentPath], append(path, currentPath), keyPath, valuePath, fields[1:], imageInfos)
 }
 
 func BuildStandardExtractors(tags ...string) []imageExtractor {
@@ -161,11 +138,10 @@ func lookupImageExtractor(kind string, configs kyvernov1.ImageExtractorConfigs) 
 					fields = fields[:len(fields)-1]
 				}
 				extractors = append(extractors, imageExtractor{
-					Fields:   fields,
-					Key:      c.Key,
-					Name:     name,
-					Value:    value,
-					JMESPath: c.JMESPath,
+					Fields: fields,
+					Key:    c.Key,
+					Name:   name,
+					Value:  value,
 				})
 			}
 			return extractors
@@ -174,7 +150,7 @@ func lookupImageExtractor(kind string, configs kyvernov1.ImageExtractorConfigs) 
 	return registeredExtractors[kind]
 }
 
-func ExtractImagesFromResource(resource unstructured.Unstructured, configs kyvernov1.ImageExtractorConfigs, cfg config.Configuration) (map[string]map[string]ImageInfo, error) {
+func ExtractImagesFromResource(resource unstructured.Unstructured, configs kyvernov1.ImageExtractorConfigs) (map[string]map[string]ImageInfo, error) {
 	infos := map[string]map[string]ImageInfo{}
 
 	extractors := lookupImageExtractor(resource.GetKind(), configs)
@@ -183,7 +159,7 @@ func ExtractImagesFromResource(resource unstructured.Unstructured, configs kyver
 	}
 
 	for _, extractor := range extractors {
-		if infoMap, err := extractor.ExtractFromResource(resource.Object, cfg); err != nil {
+		if infoMap, err := extractor.ExtractFromResource(resource.Object); err != nil {
 			return nil, err
 		} else if len(infoMap) > 0 {
 			infos[extractor.Name] = infoMap

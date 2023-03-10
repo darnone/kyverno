@@ -5,10 +5,8 @@ import (
 
 	"github.com/go-logr/logr"
 	kyvernov1 "github.com/kyverno/kyverno/api/kyverno/v1"
-	engineapi "github.com/kyverno/kyverno/pkg/engine/api"
+	"github.com/kyverno/kyverno/pkg/engine/response"
 	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func Test_getAction(t *testing.T) {
@@ -46,33 +44,8 @@ func Test_getAction(t *testing.T) {
 }
 
 func TestBlockRequest(t *testing.T) {
-	auditPolicy := &kyvernov1.ClusterPolicy{
-		ObjectMeta: v1.ObjectMeta{
-			Name: "test",
-		},
-		Spec: kyvernov1.Spec{
-			ValidationFailureAction: kyvernov1.Audit,
-		},
-	}
-	enforcePolicy := &kyvernov1.ClusterPolicy{
-		ObjectMeta: v1.ObjectMeta{
-			Name: "test",
-		},
-		Spec: kyvernov1.Spec{
-			ValidationFailureAction: kyvernov1.Enforce,
-		},
-	}
-	resource := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"kind": "foo",
-			"metadata": map[string]interface{}{
-				"namespace": "bar",
-				"name":      "baz",
-			},
-		},
-	}
 	type args struct {
-		engineResponses []*engineapi.EngineResponse
+		engineResponses []*response.EngineResponse
 		failurePolicy   kyvernov1.FailurePolicyType
 		log             logr.Logger
 	}
@@ -83,16 +56,19 @@ func TestBlockRequest(t *testing.T) {
 	}{{
 		name: "failure - enforce",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, enforcePolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-fail",
-							Status:  engineapi.RuleStatusFail,
-							Message: "message fail",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						ValidationFailureAction: "Enforce",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-fail",
+								Status:  response.RuleStatusFail,
+								Message: "message fail",
+							},
 						},
 					},
-				}),
+				},
 			},
 			failurePolicy: kyvernov1.Fail,
 			log:           logr.Discard(),
@@ -101,16 +77,19 @@ func TestBlockRequest(t *testing.T) {
 	}, {
 		name: "failure - audit",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, auditPolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-fail",
-							Status:  engineapi.RuleStatusFail,
-							Message: "message fail",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						ValidationFailureAction: "Audit",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-fail",
+								Status:  response.RuleStatusFail,
+								Message: "message fail",
+							},
 						},
 					},
-				}),
+				},
 			},
 			failurePolicy: kyvernov1.Fail,
 			log:           logr.Discard(),
@@ -119,16 +98,19 @@ func TestBlockRequest(t *testing.T) {
 	}, {
 		name: "error - fail",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, auditPolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-error",
-							Status:  engineapi.RuleStatusError,
-							Message: "message error",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						ValidationFailureAction: "Audit",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-error",
+								Status:  response.RuleStatusError,
+								Message: "message error",
+							},
 						},
 					},
-				}),
+				},
 			},
 			failurePolicy: kyvernov1.Fail,
 			log:           logr.Discard(),
@@ -137,16 +119,19 @@ func TestBlockRequest(t *testing.T) {
 	}, {
 		name: "error - ignore",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, auditPolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-error",
-							Status:  engineapi.RuleStatusError,
-							Message: "message error",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						ValidationFailureAction: "Audit",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-error",
+								Status:  response.RuleStatusError,
+								Message: "message error",
+							},
 						},
 					},
-				}),
+				},
 			},
 			failurePolicy: kyvernov1.Ignore,
 			log:           logr.Discard(),
@@ -155,16 +140,19 @@ func TestBlockRequest(t *testing.T) {
 	}, {
 		name: "warning - ignore",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, auditPolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-warning",
-							Status:  engineapi.RuleStatusWarn,
-							Message: "message warning",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						ValidationFailureAction: "Audit",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-warning",
+								Status:  response.RuleStatusWarn,
+								Message: "message warning",
+							},
 						},
 					},
-				}),
+				},
 			},
 			failurePolicy: kyvernov1.Ignore,
 			log:           logr.Discard(),
@@ -173,16 +161,19 @@ func TestBlockRequest(t *testing.T) {
 	}, {
 		name: "warning - fail",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, auditPolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-warning",
-							Status:  engineapi.RuleStatusWarn,
-							Message: "message warning",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						ValidationFailureAction: "Audit",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-warning",
+								Status:  response.RuleStatusWarn,
+								Message: "message warning",
+							},
 						},
 					},
-				}),
+				},
 			},
 			failurePolicy: kyvernov1.Fail,
 			log:           logr.Discard(),
@@ -198,25 +189,8 @@ func TestBlockRequest(t *testing.T) {
 }
 
 func TestGetBlockedMessages(t *testing.T) {
-	enforcePolicy := &kyvernov1.ClusterPolicy{
-		ObjectMeta: v1.ObjectMeta{
-			Name: "test",
-		},
-		Spec: kyvernov1.Spec{
-			ValidationFailureAction: kyvernov1.Enforce,
-		},
-	}
-	resource := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"kind": "foo",
-			"metadata": map[string]interface{}{
-				"namespace": "bar",
-				"name":      "baz",
-			},
-		},
-	}
 	type args struct {
-		engineResponses []*engineapi.EngineResponse
+		engineResponses []*response.EngineResponse
 	}
 	tests := []struct {
 		name string
@@ -225,53 +199,86 @@ func TestGetBlockedMessages(t *testing.T) {
 	}{{
 		name: "failure - enforce",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, enforcePolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-fail",
-							Status:  engineapi.RuleStatusFail,
-							Message: "message fail",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						Policy: response.PolicySpec{
+							Name: "test",
+						},
+						ValidationFailureAction: "Enforce",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-fail",
+								Status:  response.RuleStatusFail,
+								Message: "message fail",
+							},
+						},
+						Resource: response.ResourceSpec{
+							Kind:      "foo",
+							Namespace: "bar",
+							Name:      "baz",
 						},
 					},
-				}),
+				},
 			},
 		},
 		want: "\n\npolicy foo/bar/baz for resource violation: \n\ntest:\n  rule-fail: message fail\n",
 	}, {
 		name: "error - enforce",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, enforcePolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-error",
-							Status:  engineapi.RuleStatusError,
-							Message: "message error",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						Policy: response.PolicySpec{
+							Name: "test",
+						},
+						ValidationFailureAction: "Enforce",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-error",
+								Status:  response.RuleStatusError,
+								Message: "message error",
+							},
+						},
+						Resource: response.ResourceSpec{
+							Kind:      "foo",
+							Namespace: "bar",
+							Name:      "baz",
 						},
 					},
-				}),
+				},
 			},
 		},
 		want: "\n\npolicy foo/bar/baz for resource error: \n\ntest:\n  rule-error: message error\n",
 	}, {
 		name: "error and failure - enforce",
 		args: args{
-			engineResponses: []*engineapi.EngineResponse{
-				engineapi.NewEngineResponse(resource, enforcePolicy, nil, &engineapi.PolicyResponse{
-					Rules: []engineapi.RuleResponse{
-						{
-							Name:    "rule-fail",
-							Status:  engineapi.RuleStatusFail,
-							Message: "message fail",
+			engineResponses: []*response.EngineResponse{
+				{
+					PolicyResponse: response.PolicyResponse{
+						Policy: response.PolicySpec{
+							Name: "test",
 						},
-						{
-							Name:    "rule-error",
-							Status:  engineapi.RuleStatusError,
-							Message: "message error",
+						ValidationFailureAction: "Enforce",
+						Rules: []response.RuleResponse{
+							{
+								Name:    "rule-fail",
+								Status:  response.RuleStatusFail,
+								Message: "message fail",
+							},
+							{
+								Name:    "rule-error",
+								Status:  response.RuleStatusError,
+								Message: "message error",
+							},
+						},
+						Resource: response.ResourceSpec{
+							Kind:      "foo",
+							Namespace: "bar",
+							Name:      "baz",
 						},
 					},
-				}),
+				},
 			},
 		},
 		want: "\n\npolicy foo/bar/baz for resource violation: \n\ntest:\n  rule-error: message error\n  rule-fail: message fail\n",

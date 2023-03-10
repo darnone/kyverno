@@ -9,7 +9,6 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/kyverno/kyverno/pkg/images"
 	"github.com/kyverno/kyverno/pkg/registryclient"
 	"github.com/sigstore/cosign/pkg/cosign"
 	"github.com/sigstore/cosign/pkg/cosign/bundle"
@@ -73,26 +72,24 @@ func TestCosignPayload(t *testing.T) {
 }
 
 func TestCosignKeyless(t *testing.T) {
-	opts := images.Options{
+	opts := Options{
 		ImageRef: "ghcr.io/jimbugwadia/pause2",
 		Issuer:   "https://github.com/",
 		Subject:  "jim",
 	}
 
-	rc, err := registryclient.New()
+	client, err := registryclient.New()
 	assert.NilError(t, err)
-	opts.RegistryClient = rc
 
-	verifier := &cosignVerifier{}
-	_, err = verifier.VerifySignature(context.TODO(), opts)
+	_, err = VerifySignature(context.TODO(), client, opts)
 	assert.ErrorContains(t, err, "subject mismatch: expected jim, received jim@nirmata.com")
 
 	opts.Subject = "jim@nirmata.com"
-	_, err = verifier.VerifySignature(context.TODO(), opts)
+	_, err = VerifySignature(context.TODO(), client, opts)
 	assert.ErrorContains(t, err, "issuer mismatch: expected https://github.com/, received https://github.com/login/oauth")
 
 	opts.Issuer = "https://github.com/login/oauth"
-	_, err = verifier.VerifySignature(context.TODO(), opts)
+	_, err = VerifySignature(context.TODO(), client, opts)
 	assert.NilError(t, err)
 }
 

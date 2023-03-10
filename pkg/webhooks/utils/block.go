@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kyvernov1 "github.com/kyverno/kyverno/api/kyverno/v1"
-	engineapi "github.com/kyverno/kyverno/pkg/engine/api"
+	"github.com/kyverno/kyverno/pkg/engine/response"
 	engineutils "github.com/kyverno/kyverno/pkg/utils/engine"
 	"gopkg.in/yaml.v2"
 )
@@ -23,10 +23,10 @@ func getAction(hasViolations bool, i int) string {
 
 // returns true -> if there is even one policy that blocks resource request
 // returns false -> if all the policies are meant to report only, we dont block resource request
-func BlockRequest(engineResponses []*engineapi.EngineResponse, failurePolicy kyvernov1.FailurePolicyType, log logr.Logger) bool {
+func BlockRequest(engineResponses []*response.EngineResponse, failurePolicy kyvernov1.FailurePolicyType, log logr.Logger) bool {
 	for _, er := range engineResponses {
 		if engineutils.BlockRequest(er, failurePolicy) {
-			log.V(2).Info("blocking admission request", "policy", er.Policy.GetName())
+			log.V(2).Info("blocking admission request", "policy", er.PolicyResponse.Policy.Name)
 			return true
 		}
 	}
@@ -35,7 +35,7 @@ func BlockRequest(engineResponses []*engineapi.EngineResponse, failurePolicy kyv
 }
 
 // GetBlockedMessages gets the error messages for rules with error or fail status
-func GetBlockedMessages(engineResponses []*engineapi.EngineResponse) string {
+func GetBlockedMessages(engineResponses []*response.EngineResponse) string {
 	if len(engineResponses) == 0 {
 		return ""
 	}
@@ -44,22 +44,22 @@ func GetBlockedMessages(engineResponses []*engineapi.EngineResponse) string {
 	for _, er := range engineResponses {
 		ruleToReason := make(map[string]string)
 		for _, rule := range er.PolicyResponse.Rules {
-			if rule.Status != engineapi.RuleStatusPass {
+			if rule.Status != response.RuleStatusPass {
 				ruleToReason[rule.Name] = rule.Message
-				if rule.Status == engineapi.RuleStatusFail {
+				if rule.Status == response.RuleStatusFail {
 					hasViolations = true
 				}
 			}
 		}
 		if len(ruleToReason) != 0 {
-			failures[er.Policy.GetName()] = ruleToReason
+			failures[er.PolicyResponse.Policy.Name] = ruleToReason
 		}
 	}
 	if len(failures) == 0 {
 		return ""
 	}
-	r := engineResponses[0].Resource
-	resourceName := fmt.Sprintf("%s/%s/%s", r.GetKind(), r.GetNamespace(), r.GetName())
+	r := engineResponses[0].PolicyResponse.Resource
+	resourceName := fmt.Sprintf("%s/%s/%s", r.Kind, r.Namespace, r.Name)
 	action := getAction(hasViolations, len(failures))
 	results, _ := yaml.Marshal(failures)
 	msg := fmt.Sprintf("\n\npolicy %s for resource %s: \n\n%s", resourceName, action, results)

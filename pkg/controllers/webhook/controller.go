@@ -95,7 +95,6 @@ type controller struct {
 	// config
 	server             string
 	defaultTimeout     int32
-	servicePort        int32
 	autoUpdateWebhooks bool
 	admissionReports   bool
 	runtime            runtimeutils.Runtime
@@ -121,7 +120,6 @@ func NewController(
 	clusterroleInformer rbacv1informers.ClusterRoleInformer,
 	server string,
 	defaultTimeout int32,
-	servicePort int32,
 	autoUpdateWebhooks bool,
 	admissionReports bool,
 	runtime runtimeutils.Runtime,
@@ -144,7 +142,6 @@ func NewController(
 		queue:              queue,
 		server:             server,
 		defaultTimeout:     defaultTimeout,
-		servicePort:        servicePort,
 		autoUpdateWebhooks: autoUpdateWebhooks,
 		admissionReports:   admissionReports,
 		runtime:            runtime,
@@ -328,7 +325,6 @@ func (c *controller) clientConfig(caBundle []byte, path string) admissionregistr
 			Namespace: config.KyvernoNamespace(),
 			Name:      config.KyvernoServiceName(),
 			Path:      &path,
-			Port:      &c.servicePort,
 		}
 	} else {
 		url := fmt.Sprintf("https://%s%s", c.server, path)
@@ -847,13 +843,22 @@ func (c *controller) mergeWebhook(dst *webhook, policy kyvernov1.PolicyInterface
 		if _, ok := gvkMap[gvk]; !ok {
 			gvkMap[gvk] = 1
 			// NOTE: webhook stores GVR in its rules while policy stores GVK in its rules definition
-			group, version, kind, subresource := kubeutils.ParseKindSelector(gvk)
-			gvrs, err := c.discoveryClient.FindResources(group, version, kind, subresource)
+			gv, k := kubeutils.GetKindFromGVK(gvk)
+			_, parentAPIResource, gvr, err := c.discoveryClient.FindResource(gv, k)
 			if err != nil {
-				logger.Error(err, "unable to find resource", "group", group, "version", version, "kind", kind, "subresource", subresource)
+				logger.Error(err, "unable to convert GVK to GVR", "GVK", gvk)
 				continue
 			}
-			for _, gvr := range gvrs {
+			if parentAPIResource != nil {
+				gvr = schema.GroupVersionResource{
+					Group:    parentAPIResource.Group,
+					Version:  parentAPIResource.Version,
+					Resource: gvr.Resource,
+				}
+			}
+			if strings.Contains(gvk, "*") {
+				gvrList = append(gvrList, schema.GroupVersionResource{Group: gvr.Group, Version: "*", Resource: gvr.Resource})
+			} else {
 				logger.V(4).Info("configuring webhook", "GVK", gvk, "GVR", gvr)
 				gvrList = append(gvrList, gvr)
 			}

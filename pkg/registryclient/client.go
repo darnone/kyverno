@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
+	ecr "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
 	"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/authn/github"
@@ -49,8 +49,8 @@ var (
 
 // Client provides registry related objects.
 type Client interface {
-	// Keychain provides the configured credentials
-	Keychain() authn.Keychain
+	// getKeychain provides keychain object.
+	getKeychain() authn.Keychain
 
 	// getTransport provides transport object.
 	getTransport() http.RoundTripper
@@ -61,9 +61,6 @@ type Client interface {
 
 	// BuildRemoteOption builds remote.Option based on client.
 	BuildRemoteOption(context.Context) remote.Option
-
-	// RefreshKeychainPullSecrets loads fresh data from pull secrets (if non-empty) and updates Keychain.
-	RefreshKeychainPullSecrets(ctx context.Context) error
 }
 
 type client struct {
@@ -168,7 +165,7 @@ func (c *client) BuildRemoteOption(ctx context.Context) remote.Option {
 // FetchImageDescriptor fetches Descriptor from registry with given imageRef
 // and provides access to metadata about remote artifact.
 func (c *client) FetchImageDescriptor(ctx context.Context, imageRef string) (*gcrremote.Descriptor, error) {
-	if err := c.RefreshKeychainPullSecrets(ctx); err != nil {
+	if err := c.refreshKeychainPullSecrets(ctx); err != nil {
 		return nil, fmt.Errorf("failed to refresh image pull secrets, error: %v", err)
 	}
 	parsedRef, err := name.ParseReference(imageRef)
@@ -182,15 +179,16 @@ func (c *client) FetchImageDescriptor(ctx context.Context, imageRef string) (*gc
 	return desc, nil
 }
 
-// refreshKeychainPullSecrets loads fresh data from pull secrets (if non-empty) and updates Keychain.
-func (c *client) RefreshKeychainPullSecrets(ctx context.Context) error {
+// refreshKeychainPullSecrets loads fresh data from pull secrets and updates Keychain.
+// If pull secrets are empty - returns.
+func (c *client) refreshKeychainPullSecrets(ctx context.Context) error {
 	if c.pullSecretRefresher == nil {
 		return nil
 	}
 	return c.pullSecretRefresher(ctx, c)
 }
 
-func (c *client) Keychain() authn.Keychain {
+func (c *client) getKeychain() authn.Keychain {
 	return c.keychain
 }
 

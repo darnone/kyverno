@@ -33,7 +33,7 @@ func (s updateRequestNamespaceLister) GetUpdateRequestsForClusterPolicy(policy s
 		return nil, err
 	}
 	for idx, ur := range urs {
-		if ur.Spec.GetPolicyKey() == policy {
+		if ur.Spec.Policy == policy {
 			list = append(list, urs[idx])
 		}
 	}

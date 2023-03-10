@@ -3,10 +3,8 @@ package v1
 import (
 	"encoding/json"
 
-	"github.com/kyverno/kyverno/pkg/engine/variables/regex"
 	"github.com/sigstore/k8s-manifest-sigstore/pkg/k8smanifest"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/pod-security-admission/api"
@@ -28,9 +26,9 @@ const (
 type ApplyRulesType string
 
 const (
-	// ApplyAll applies all rules in a policy that match.
+	// AllMatchingRules applies all rules in a policy that match.
 	ApplyAll ApplyRulesType = "All"
-	// ApplyOne applies only the first matching rule in the policy.
+	// FirstMatchingRule applies only the first matching rule in the policy.
 	ApplyOne ApplyRulesType = "One"
 )
 
@@ -62,8 +60,8 @@ type ContextEntry struct {
 	// ConfigMap is the ConfigMap reference.
 	ConfigMap *ConfigMapReference `json:"configMap,omitempty" yaml:"configMap,omitempty"`
 
-	// APICall is an HTTP request to the Kubernetes API server, or other JSON web service.
-	// The data returned is stored in the context with the name for the context entry.
+	// APICall defines an HTTP request to the Kubernetes API server. The JSON
+	// data retrieved is stored in the context.
 	APICall *APICall `json:"apiCall,omitempty" yaml:"apiCall,omitempty"`
 
 	// ImageRegistry defines requests to an OCI/Docker V2 registry to fetch image
@@ -114,56 +112,23 @@ type ConfigMapReference struct {
 	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 }
 
+// APICall defines an HTTP request to the Kubernetes API server. The JSON
+// data retrieved is stored in the context. An APICall contains a URLPath
+// used to perform the HTTP GET request and an optional JMESPath used to
+// transform the retrieved JSON data.
 type APICall struct {
 	// URLPath is the URL path to be used in the HTTP GET request to the
 	// Kubernetes API server (e.g. "/api/v1/namespaces" or  "/apis/apps/v1/deployments").
 	// The format required is the same format used by the `kubectl get --raw` command.
-	// +kubebuilder:validation:Optional
 	URLPath string `json:"urlPath" yaml:"urlPath"`
 
-	// Service is an API call to a JSON web service
-	// +kubebuilder:validation:Optional
-	Service *ServiceCall `json:"service,omitempty" yaml:"service,omitempty"`
-
 	// JMESPath is an optional JSON Match Expression that can be used to
-	// transform the JSON response returned from the server. For example
+	// transform the JSON response returned from the API server. For example
 	// a JMESPath of "items | length(@)" applied to the API server response
-	// for the URLPath "/apis/apps/v1/deployments" will return the total count
+	// to the URLPath "/apis/apps/v1/deployments" will return the total count
 	// of deployments across all namespaces.
-	// +kubebuilder:validation:Optional
+	// +optional
 	JMESPath string `json:"jmesPath,omitempty" yaml:"jmesPath,omitempty"`
-}
-
-type ServiceCall struct {
-	// URL is the JSON web service URL.
-	// The typical format is `https://{service}.{namespace}:{port}/{path}`.
-	URL string `json:"urlPath" yaml:"urlPath"`
-
-	// CABundle is a PEM encoded CA bundle which will be used to validate
-	// the server certificate.
-	// +kubebuilder:validation:Optional
-	CABundle string `json:"caBundle" yaml:"caBundle"`
-
-	// Method is the HTTP request type (GET or POST).
-	// +kubebuilder:default=GET
-	Method Method `json:"requestType" yaml:"requestType"`
-
-	// Data specifies the POST data sent to the server.
-	// +kubebuilder:validation:Optional
-	Data []RequestData `json:"data" yaml:"data"`
-}
-
-// Method is a HTTP request type.
-// +kubebuilder:validation:Enum=GET;POST
-type Method string
-
-// RequestData contains the HTTP POST data
-type RequestData struct {
-	// Key is a unique identifier for the data value
-	Key string `json:"key" yaml:"key"`
-
-	// Value is the data value
-	Value *apiextensionsv1.JSON `json:"value" yaml:"value"`
 }
 
 // Condition defines variable-based conditional criteria for rule execution.
@@ -291,7 +256,7 @@ func (m *Mutation) SetPatchStrategicMerge(in apiextensions.JSON) {
 	m.RawPatchStrategicMerge = ToJSON(in)
 }
 
-// ForEachMutation applies mutation rules to a list of sub-elements by creating a context for each entry in the list and looping over it to apply the specified logic.
+// ForEach applies mutation rules to a list of sub-elements by creating a context for each entry in the list and looping over it to apply the specified logic.
 type ForEachMutation struct {
 	// List specifies a JMESPath expression that results in one or more elements
 	// to which the validation logic is applied.
@@ -462,7 +427,7 @@ func (d *Deny) SetAnyAllConditions(in apiextensions.JSON) {
 	d.RawAnyAllConditions = ToJSON(in)
 }
 
-// ForEachValidation applies validate rules to a list of sub-elements by creating a context for each entry in the list and looping over it to apply the specified logic.
+// ForEach applies validate rules to a list of sub-elements by creating a context for each entry in the list and looping over it to apply the specified logic.
 type ForEachValidation struct {
 	// List specifies a JMESPath expression that results in one or more elements
 	// to which the validation logic is applied.
@@ -561,44 +526,12 @@ type CloneList struct {
 	Selector *metav1.LabelSelector `json:"selector,omitempty" yaml:"selector,omitempty"`
 }
 
-func (g *Generation) Validate() error {
-	generateType, _ := g.GetTypeAndSync()
-	if generateType == Data {
-		return nil
-	}
-
-	newGeneration := Generation{
-		ResourceSpec: ResourceSpec{
-			Kind:       g.ResourceSpec.GetKind(),
-			APIVersion: g.ResourceSpec.GetAPIVersion(),
-		},
-		Clone:     g.Clone,
-		CloneList: g.CloneList,
-	}
-
-	return regex.ObjectHasVariables(newGeneration)
-}
-
 func (g *Generation) GetData() apiextensions.JSON {
 	return FromJSON(g.RawData)
 }
 
 func (g *Generation) SetData(in apiextensions.JSON) {
 	g.RawData = ToJSON(in)
-}
-
-type GenerateType string
-
-const (
-	Data  GenerateType = "Data"
-	Clone GenerateType = "Clone"
-)
-
-func (g *Generation) GetTypeAndSync() (GenerateType, bool) {
-	if g.RawData != nil {
-		return Data, g.Synchronize
-	}
-	return Clone, g.Synchronize
 }
 
 // CloneFrom provides the location of the source resource used to generate target resources.

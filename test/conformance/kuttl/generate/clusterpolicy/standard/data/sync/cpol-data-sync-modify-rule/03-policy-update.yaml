@@ -3,7 +3,7 @@ kind: ClusterPolicy
 metadata:
   name: zk-kafka-address
 spec:
-  generateExisting: true
+  generateExistingOnPolicyUpdate: true
   rules:
   - name: k-kafka-address
     match:

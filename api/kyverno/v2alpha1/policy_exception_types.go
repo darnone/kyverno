@@ -16,10 +16,7 @@ limitations under the License.
 package v2alpha1
 
 import (
-	"fmt"
-
 	kyvernov2beta1 "github.com/kyverno/kyverno/api/kyverno/v2beta1"
-	"github.com/kyverno/kyverno/pkg/engine/variables/regex"
 	"golang.org/x/exp/slices"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -43,15 +40,8 @@ type PolicyException struct {
 
 // Validate implements programmatic validation
 func (p *PolicyException) Validate() (errs field.ErrorList) {
-	if err := ValidateVariables(p); err != nil {
-		errs = append(errs, field.Forbidden(field.NewPath(""), fmt.Sprintf("Policy Exception \"%s\" should not have variables", p.Name)))
-	}
 	errs = append(errs, p.Spec.Validate(field.NewPath("spec"))...)
 	return errs
-}
-
-func ValidateVariables(polex *PolicyException) error {
-	return regex.ObjectHasVariables(polex)
 }
 
 // Contains returns true if it contains an exception for the given policy/rule pair
@@ -61,11 +51,6 @@ func (p *PolicyException) Contains(policy string, rule string) bool {
 
 // PolicyExceptionSpec stores policy exception spec
 type PolicyExceptionSpec struct {
-	// Background controls if exceptions are applied to existing policies during a background scan.
-	// Optional. Default value is "true". The value must be set to "false" if the policy rule
-	// uses variables that are only available in the admission review request (e.g. user name).
-	Background *bool `json:"background,omitempty" yaml:"background,omitempty"`
-
 	// Match defines match clause used to check if a resource applies to the exception
 	Match kyvernov2beta1.MatchResources `json:"match"`
 
@@ -73,20 +58,8 @@ type PolicyExceptionSpec struct {
 	Exceptions []Exception `json:"exceptions"`
 }
 
-func (p *PolicyExceptionSpec) BackgroundProcessingEnabled() bool {
-	if p.Background == nil {
-		return true
-	}
-	return *p.Background
-}
-
 // Validate implements programmatic validation
 func (p *PolicyExceptionSpec) Validate(path *field.Path) (errs field.ErrorList) {
-	if p.BackgroundProcessingEnabled() {
-		if userErrs := p.Match.ValidateNoUserInfo(path.Child("match")); len(userErrs) > 0 {
-			errs = append(errs, userErrs...)
-		}
-	}
 	errs = append(errs, p.Match.Validate(path.Child("match"), false, nil)...)
 	exceptionsPath := path.Child("exceptions")
 	for i, e := range p.Exceptions {

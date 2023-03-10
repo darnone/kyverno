@@ -217,7 +217,7 @@ func (c *ApplyCommandConfig) applyCommandHelper() (rc *common.ResultCounts, reso
 		return rc, resources, skipInvalidPolicies, pvInfos, err
 	}
 
-	openApiManager, err := openapi.NewManager(log.Log)
+	openApiManager, err := openapi.NewManager()
 	if err != nil {
 		return rc, resources, skipInvalidPolicies, pvInfos, sanitizederror.NewWithError("failed to initialize openAPIController", err)
 	}
@@ -334,12 +334,14 @@ func (c *ApplyCommandConfig) applyCommandHelper() (rc *common.ResultCounts, reso
 
 	// get the user info as request info from a different file
 	var userInfo v1beta1.RequestInfo
+	var subjectInfo store.Subject
 	if c.UserInfoPath != "" {
-		userInfo, err = common.GetUserInfoFromPath(fs, c.UserInfoPath, false, "")
+		userInfo, subjectInfo, err = common.GetUserInfoFromPath(fs, c.UserInfoPath, false, "")
 		if err != nil {
 			fmt.Printf("Error: failed to load request info\nCause: %s\n", err)
 			osExit(1)
 		}
+		store.SetSubjects(subjectInfo)
 	}
 
 	if c.VariablesString != "" {
@@ -384,7 +386,7 @@ func (c *ApplyCommandConfig) applyCommandHelper() (rc *common.ResultCounts, reso
 	skipInvalidPolicies.invalid = make([]string, 0)
 
 	for _, policy := range policies {
-		_, err := policy2.Validate(policy, nil, nil, true, openApiManager)
+		_, err := policy2.Validate(policy, nil, true, openApiManager)
 		if err != nil {
 			log.Log.Error(err, "policy validation error")
 			if strings.HasPrefix(err.Error(), "variable 'element.name'") {
